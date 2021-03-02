@@ -59,6 +59,8 @@ typedef struct {
 
 imu::Vector<3> accel_imu;
 
+imu::Quaternion quat;
+
 vector3D pos;
 vector3D accel;
 
@@ -141,6 +143,68 @@ bool populateDataIMU(const imu::Vector<3> * accel_data, vector3D * pos, vector3D
 
     return true;
 }
+
+/*
+ * bool conjugate(const imu::Quaternion * quat, imu::Quaternion * quat_conj)
+ * 
+ * Description: Transforms a quaternion q into its conjugate q*.
+ * 
+ * For quaternion q = (w, xi + yj + zk), its conjugate
+ * q* = (w, -xi - yj - zk)
+ * 
+ * Return:
+ * 
+ * False: Input pointer(s) is NULL
+ * True: Conjuagate quaternion q* of input quaternion q
+ * 
+ */
+bool conjugate(const imu::Quaternion * quat, imu::Quaternion * quat_conj) {
+  if (!quat || !quat_conj) {
+    return false;
+  }
+
+  quat_conj.w() = quat->w();
+  quat_conj.x() = -quat->x();
+  quat_conj.y() = -quat->y();
+  quat_conj.z() = -quat->z();
+
+  return true;
+}
+
+///*
+// * bool normalize(imu::Quaternion * quat)
+// * 
+// * Description: Transforms a quaternion into a unit quaternion 
+// * normalized by its magnitude.
+// * 
+// * For quaternion q = (w, xi + yj + zk), its magnitude/norm 
+// * |q| = sqrt(w*w + x*x + y*y + z*z)
+// * 
+// * Return:
+// * 
+// * False: Input pointer is NULL
+// * True: Original quaternion transformed into unit quaternion
+// * 
+// */
+//bool normalize(imu::Quaternion * quat) {
+//  if (!quat) {
+//    return false;  
+//  }
+//
+//  int16_t w = quat->w();
+//  int16_t x = quat->x();
+//  int16_t y = quat->y();
+//  int16_t z = quat->z();
+//
+//  float norm = sqrt(w*w + x*x + y*y + z*z);
+//
+//  quat->w() = round((float)quat->w()/norm);
+//  quat->x() = round((float)quat->x()/norm);
+//  quat->y() = round((float)quat->y()/norm);
+//  quat->z() = round((float)quat->z()/norm);
+//
+//  return true;
+//}
 
 void setup()
 {
@@ -232,6 +296,27 @@ void loop()
 
     // Read forearm IMU acceleration data
     accel_imu = forearm_imu.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
+
+    // Read forearm IMU absolute orientation data (quaternion output)
+    quat = forearm_imu.getQuat();
+
+    int16_t ww = quat.w()*quat.w();
+    int16_t xx = quat.x()*quat.x();
+    int16_t yy = quat.y()*quat.y();
+    int16_t zz = quat.z()*quat.z();
+
+    int16_t wx_2 = 2*quat.w()*quat.x();
+    int16_t wy_2 = 2*quat.w()*quat.y();
+    int16_t wz_2 = 2*quat.w()*quat.z();
+    
+    int16_t xy_2 = 2*quat.x()*quat.y();
+    int16_t xz_2 = 2*quat.x()*quat.z();
+    int16_t yz_2 = 2*quat.y()*quat.z();
+
+    accel_imu->x() = accel_imu->x()*(ww + xx + yy + zz + xy_2 + wz_2 - wy_2 + xz_2);
+    accel_imu->y() = accel_imu->y()*(xy_2 - wz_2 + ww - xx + yy - zz + wx_2 + yz_2);
+    accel_imu->z() = accel_imu->z()*(wy_2 + xz_2 - wx_2 + yz_2 + ww - xx - yy + zz);
+    
     // Populate forearm IMU position and acceleration data
     if (!populateDataIMU(&accel_imu, &pos, &accel)) {
       Serial.println("Function populateDataIMU failed for forearm_imu");
