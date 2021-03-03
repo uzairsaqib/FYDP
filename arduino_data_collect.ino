@@ -20,7 +20,7 @@
 const uint8_t bno055_samplerate_delay_ms = 10;
 
 // Temporal data segment size for clasification (in ms)
-const uint8_t segment_size = 150;
+const uint8_t segment_size = 500;
 
 // Global count for sample number per segment
 uint8_t sample_num = 0;
@@ -38,7 +38,7 @@ const float offset_voltage = 3.3/2.0;
 // ADC offset (Arduino 10bit ADC = (2^10 - 1) = 1023 data points)
 const uint16_t adc_offset = (offset_voltage/5.0)*1023;
 
-// Differential time used for displacement calculation (millisecond)
+// Differential time used for displacement calculation
 const float delta_time = (float)(bno055_samplerate_delay_ms)/1000.0;
 
 /*
@@ -59,8 +59,42 @@ typedef struct {
 
 imu::Vector<3> accel_imu;
 
+imu::Quaternion quat;
+
 vector3D pos;
 vector3D accel;
+
+/*
+16
+-3
+-21
+-89
+168
+-207
+0
+-2
+1
+1000
+950
+
+ */
+
+adafruit_bno055_offsets_t sensor_offsets = {
+  .accel_offset_x = 16,
+  .accel_offset_y = -3,
+  .accel_offset_z = -21,
+  
+  .mag_offset_x = -89,
+  .mag_offset_y = 168,
+  .mag_offset_z = -207,
+
+  .gyro_offset_x = 0,
+  .gyro_offset_y = -2,
+  .gyro_offset_z = 1,
+
+  .accel_radius = 1000,
+  .mag_radius = 950,
+};
 
 /*
  * Sensor Data Arrays
@@ -121,25 +155,106 @@ bool populateDataIMU(const imu::Vector<3> * accel_data, vector3D * pos, vector3D
     }
 
     // Calculate displacement (del_x = 0.5*acceleration*dt*dt)
-    pos->x = 0.5*accel_data->x()*delta_time*delta_time;
-    pos->y = 0.5*accel_data->y()*delta_time*delta_time;
-    pos->z = 0.5*accel_data->z()*delta_time*delta_time;
-
-    accel->x = accel_data->x();
-    accel->y = accel_data->y();
-    accel->z = accel_data->z();
-
-//    // Calculate displacement (del_x = 0.5*acceleration*dt*dt) (cm)
-//    pos->x = 0.5*accel_data->x()*100.0*delta_time*delta_time;
-//    pos->y = 0.5*accel_data->y()*100.0*delta_time*delta_time;
-//    pos->z = 0.5*accel_data->z()*100.0*delta_time*delta_time;
+//    pos->x = 0.5*accel_data->x()*delta_time*delta_time;
+//    pos->y = 0.5*accel_data->y()*delta_time*delta_time;
+//    pos->z = 0.5*accel_data->z()*delta_time*delta_time;
 //
-//    // Store acceleration data (cm/s^2)
-//    accel->x = accel_data->x()*100.0;
-//    accel->y = accel_data->y()*100.0;
-//    accel->z = accel_data->z()*100.0;
+//    accel->x = accel_data->x();
+//    accel->y = accel_data->y();
+//    accel->z = accel_data->z();
+
+    // Calculate displacement (del_x = 0.5*acceleration*dt*dt) (cm)
+    pos->x = 0.5*accel_data->x()*1.0*delta_time*delta_time;
+    pos->y = 0.5*accel_data->y()*1.0*delta_time*delta_time;
+    pos->z = 0.5*accel_data->z()*1.0*delta_time*delta_time;
+
+    // Store acceleration data (cm/s^2)
+    accel->x = accel_data->x()*1.0;
+    accel->y = accel_data->y()*1.0;
+    accel->z = accel_data->z()*1.0;
 
     return true;
+}
+
+/*
+ * bool conjugate(const imu::Quaternion * quat, imu::Quaternion * quat_conj)
+ * 
+ * Description: Transforms a quaternion q into its conjugate q*.
+ * 
+ * For quaternion q = (w, xi + yj + zk), its conjugate
+ * q* = (w, -xi - yj - zk)
+ * 
+ * Return:
+ * 
+ * False: Input pointer(s) is NULL
+ * True: Conjuagate quaternion q* of input quaternion q
+ * 
+ */
+bool conjugate(const imu::Quaternion * quat, imu::Quaternion * quat_conj) {
+  if (!quat || !quat_conj) {
+    return false;
+  }
+
+  quat_conj->w() = quat->w();
+  quat_conj->x() = -quat->x();
+  quat_conj->y() = -quat->y();
+  quat_conj->z() = -quat->z();
+
+  return true;
+}
+
+void displayCalStatus(void)
+{
+  /* Get the four calibration values (0..3) */
+  /* Any sensor data reporting 0 should be ignored, */
+  /* 3 means 'fully calibrated" */
+  uint8_t system, gyro, accel, mag;
+  system = gyro = accel = mag = 0;
+  forearm_imu.getCalibration(&system, &gyro, &accel, &mag);
+ 
+  /* The data should be ignored until the system calibration is > 0 */
+  Serial.print("\t");
+  if (!system)
+  {
+    Serial.print("! ");
+  }
+ 
+  /* Display the individual values */
+  Serial.print("Sys:");
+  Serial.print(system, DEC);
+  Serial.print(" G:");
+  Serial.print(gyro, DEC);
+  Serial.print(" A:");
+  Serial.print(accel, DEC);
+  Serial.print(" M:");
+  Serial.println(mag, DEC);
+}
+
+void displayCalStatusShoulder(void)
+{
+  /* Get the four calibration values (0..3) */
+  /* Any sensor data reporting 0 should be ignored, */
+  /* 3 means 'fully calibrated" */
+  uint8_t system, gyro, accel, mag;
+  system = gyro = accel = mag = 0;
+  shoulder_imu.getCalibration(&system, &gyro, &accel, &mag);
+ 
+  /* The data should be ignored until the system calibration is > 0 */
+  Serial.print("\t");
+  if (!system)
+  {
+    Serial.print("! ");
+  }
+ 
+  /* Display the individual values */
+  Serial.print("Sys:");
+  Serial.print(system, DEC);
+  Serial.print(" G:");
+  Serial.print(gyro, DEC);
+  Serial.print(" A:");
+  Serial.print(accel, DEC);
+  Serial.print(" M:");
+  Serial.println(mag, DEC);
 }
 
 void setup()
@@ -153,7 +268,34 @@ void setup()
         Serial.println("BNO055 IMU on forearm not detected");
         while(1);
     }
-    
+
+    forearm_imu.setSensorOffsets(sensor_offsets);
+    delay(1000);
+    for (int i = 0; i < 20; i++) {
+      displayCalStatus();
+    }
+//    while (!forearm_imu.isFullyCalibrated()) {
+//      displayCalStatus();
+//    }
+//    
+//    Serial.println("FOREARM FULLY CALIBRATED");
+//    forearm_imu.getSensorOffsets(sensor_offsets);
+//    
+//    Serial.println(sensor_offsets.accel_offset_x);
+//    Serial.println(sensor_offsets.accel_offset_y);
+//    Serial.println(sensor_offsets.accel_offset_z);
+//    
+//    Serial.println(sensor_offsets.mag_offset_x);
+//    Serial.println(sensor_offsets.mag_offset_y);
+//    Serial.println(sensor_offsets.mag_offset_z);
+//
+//    Serial.println(sensor_offsets.gyro_offset_x);
+//    Serial.println(sensor_offsets.gyro_offset_y);
+//    Serial.println(sensor_offsets.gyro_offset_z);
+//
+//    Serial.println(sensor_offsets.accel_radius);
+//    Serial.println(sensor_offsets.mag_radius);
+//    
     // Delay by 1s to allow sensors to calibrate (idk I'm speculating here)
     delay(1000);
     forearm_imu.setExtCrystalUse(true);
@@ -165,6 +307,12 @@ void setup()
         while(1);
     }
 
+    shoulder_imu.setSensorOffsets(sensor_offsets);
+    delay(1000);
+    Serial.println("SHOULDER IMU");
+    for (int i = 0; i < 20; i++) {
+      displayCalStatusShoulder();  
+    }
      
     // Delay by 1s to allow sensors to calibrate (idk I'm speculating here)
     delay(1000);
@@ -232,11 +380,56 @@ void loop()
 
     // Read forearm IMU acceleration data
     accel_imu = forearm_imu.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
+
+    // Read forearm IMU absolute orientation data (quaternion output)
+    quat = forearm_imu.getQuat();
+
+//    Serial.print("qW: ");
+//    Serial.println(quat.w(), 4);
+//    Serial.print("qX: ");
+//    Serial.println(quat.x(), 4);
+//    Serial.print("qY: ");
+//    Serial.println(quat.y(), 4);
+//    Serial.print("qZ: ");
+//    Serial.println(quat.z(), 4);
+//    
+
+    float ww = quat.w()*quat.w();
+//    Serial.println(ww, 4);
+    float xx = quat.x()*quat.x();
+//    Serial.println(xx, 4);
+    float yy = quat.y()*quat.y();
+//    Serial.println(yy, 4);
+    float zz = quat.z()*quat.z();
+//    Serial.println(zz, 4);
+
+//    Serial.println(accel_imu.x(), 4);
+//    Serial.println("END");
+    float wx_2 = 2*quat.w()*quat.x();
+    float wy_2 = 2*quat.w()*quat.y();
+    float wz_2 = 2*quat.w()*quat.z();
+    
+    float xy_2 = 2*quat.x()*quat.y();
+    float xz_2 = 2*quat.x()*quat.z();
+    float yz_2 = 2*quat.y()*quat.z();
+
+    float imu_x = accel_imu.x()*(ww + xx + yy + zz + xy_2 + wz_2 - wy_2 + xz_2);
+    float imu_y = accel_imu.y()*(xy_2 - wz_2 + ww - xx + yy - zz + wx_2 + yz_2);
+    float imu_z = accel_imu.z()*(wy_2 + xz_2 - wx_2 + yz_2 + ww - xx - yy + zz);
+
+//    accel_imu.x() = accel_imu.x()*(ww + xx + yy + zz + xy_2 + wz_2 - wy_2 + xz_2);
+//    accel_imu.y() = accel_imu.y()*(xy_2 - wz_2 + ww - xx + yy - zz + wx_2 + yz_2);
+//    accel_imu.z() = accel_imu.z()*(wy_2 + xz_2 - wx_2 + yz_2 + ww - xx - yy + zz);
+    
     // Populate forearm IMU position and acceleration data
     if (!populateDataIMU(&accel_imu, &pos, &accel)) {
       Serial.println("Function populateDataIMU failed for forearm_imu");
       return;
     }
+
+//    Serial.print(accel.x);
+//    Serial.print(",");
+//    Serial.println(imu_x);
 
     // Store IMU position and acceleration into forearm data array
     forearm_pos_vals[sample_num] = pos;
@@ -244,6 +437,34 @@ void loop()
 
     // Read shoulder IMU acceleration data
     accel_imu = shoulder_imu.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
+
+        // Read forearm IMU absolute orientation data (quaternion output)
+    quat = shoulder_imu.getQuat();
+
+//    Serial.print("qW: ");
+//    Serial.println(quat.w(), 4);
+
+    ww = quat.w()*quat.w();
+//    Serial.println(ww);
+    xx = quat.x()*quat.x();
+//    Serial.println(xx);
+    yy = quat.y()*quat.y();
+//    Serial.println(yy);
+    zz = quat.z()*quat.z();
+//    Serial.println(zz);
+
+    wx_2 = 2*quat.w()*quat.x();
+    wy_2 = 2*quat.w()*quat.y();
+    wz_2 = 2*quat.w()*quat.z();
+    
+    xy_2 = 2*quat.x()*quat.y();
+    xz_2 = 2*quat.x()*quat.z();
+    yz_2 = 2*quat.y()*quat.z();
+
+    accel_imu.x() = accel_imu.x()*(ww + xx + yy + zz + xy_2 + wz_2 - wy_2 + xz_2);
+    accel_imu.y() = accel_imu.y()*(xy_2 - wz_2 + ww - xx + yy - zz + wx_2 + yz_2);
+    accel_imu.z() = accel_imu.z()*(wy_2 + xz_2 - wx_2 + yz_2 + ww - xx - yy + zz);
+    
     // Populate shoulder IMU position and acceleration data
     if (!populateDataIMU(&accel_imu, &pos, &accel)) {
       Serial.println("Function populateDataIMU failed for shoulder_imu");
@@ -274,46 +495,46 @@ void loop()
         // Print all sample data collected in current segment
         for (int sample = 0; sample < num_readings; sample++) {
             // First element prints the current segment number
-            Serial.print(segment_num);
-            Serial.print(",");
+//            Serial.print(segment_num);
+//            Serial.print(",");
             
             // Loop through all sensor data arrays (6 in total)
             for (int data_idx = 0; data_idx < 6; data_idx++) {
                 switch(data_idx) {
                     // 0, 1 indices contain pointers to EMG1 and EMG2 raw data
-                    case 0:
-                    case 1: {
-                        unsigned int ** emg2_ptr = (unsigned int **)to_data[data_idx];
-                        if (!emg2_ptr) {
-                            // Serial.println("NULL emg_ptr returned from to_data[data_idx], data_idx = %d", data_idx);
-                            return;
-                        }
-                        Serial.print((*emg2_ptr)[sample]);
-                        Serial.print(",");
-                        break;
-                    }
+//                    case 0:
+//                    case 1: {
+//                        unsigned int ** emg2_ptr = (unsigned int **)to_data[data_idx];
+//                        if (!emg2_ptr) {
+//                            // Serial.println("NULL emg_ptr returned from to_data[data_idx], data_idx = %d", data_idx);
+//                            return;
+//                        }
+//                        Serial.print((*emg2_ptr)[sample]);
+//                        Serial.print(",");
+//                        break;
+//                    }
                     // 2, 3, 4, 5 indices contain pointers to IMU1 and IMU2 displacement and acceleration data
-                    case 2:
-                    case 3:
-                    case 4:
-                    case 5: {
-                        vector3D ** vector_ptr = (vector3D **)to_data[data_idx];
-                        if (!vector_ptr) {
-                            Serial.println("NULL vector_ptr returned from index 2");
-                            return;
-                        }
-                        Serial.print((*vector_ptr)[sample].x);
-                        Serial.print(",");
-                        Serial.print((*vector_ptr)[sample].y);
-                        Serial.print(",");
-                        Serial.print((*vector_ptr)[sample].z);
-                        Serial.print(",");
-                        break;
-                    }
+//                    case 2:
+//                    case 3:
+//                    case 4: {
+//                    case 5: {
+//                        vector3D ** vector_ptr = (vector3D **)to_data[data_idx];
+//                        if (!vector_ptr) {
+//                            Serial.println("NULL vector_ptr returned from index 2");
+//                            return;
+//                        }
+//                        Serial.print((*vector_ptr)[sample].x); // Sitting down Aditya's desk facing wall, wall direction towards closet, moving IMU towards Aditya's dresser and humidifier (strafing motion)
+//                        Serial.print(",");
+//                        Serial.print((*vector_ptr)[sample].y); // Sitting down Aditya's desk facing wall, wall direction towards closet, moving IMU towards wall and door (back and forth motion)
+//                        Serial.print(",");
+//                        Serial.print((*vector_ptr)[sample].z); // Sitting down Aditya's desk facing wall, wall direction towards closet, moving IMU towards ceiling and floor (up and down motion)
+//                        Serial.print(",");
+//                        break;
+//                    }
                 }
             }
             // Last element prints the tic detected value (prints all 0 for now, labelling will be done manually)
-            Serial.println(0);
+//            Serial.println(0);
         }
         
         // Reset sample number to prepare for next data segment
