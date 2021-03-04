@@ -60,6 +60,8 @@ typedef struct {
 imu::Vector<3> accel_imu;
 
 imu::Quaternion quat_forearm;
+imu::Quaternion quat_shoulder;
+
 imu::Quaternion pure_quat;
 
 vector3D pos;
@@ -418,6 +420,10 @@ void loop()
     float y = pure_quat_transformed.y();
     float z = pure_quat_transformed.z();
 
+//    Serial.print(accel_imu.x());
+//    Serial.print(",");
+//    Serial.println(x);
+
 //    Serial.print("qW: ");
 //    Serial.println(quat_forearm.w(), 4);
 //    Serial.print("qX: ");
@@ -427,43 +433,12 @@ void loop()
 //    Serial.print("qZ: ");
 //    Serial.println(quat_forearm.z(), 4);
 //    
-
-//    float ww = quat.w()*quat.w();
-//    Serial.println(ww, 4);
-//    float xx = quat.x()*quat.x();
-//    Serial.println(xx, 4);
-//    float yy = quat.y()*quat.y();
-//    Serial.println(yy, 4);
-//    float zz = quat.z()*quat.z();
-//    Serial.println(zz, 4);
-
-//    Serial.println(accel_imu.x(), 4);
-//    Serial.println("END");
-//    float wx_2 = 2*quat.w()*quat.x();
-//    float wy_2 = 2*quat.w()*quat.y();
-//    float wz_2 = 2*quat.w()*quat.z();
-//    
-//    float xy_2 = 2*quat.x()*quat.y();
-//    float xz_2 = 2*quat.x()*quat.z();
-//    float yz_2 = 2*quat.y()*quat.z();
-//
-//    float imu_x = accel_imu.x()*(ww + xx + yy + zz + xy_2 + wz_2 - wy_2 + xz_2);
-//    float imu_y = accel_imu.y()*(xy_2 - wz_2 + ww - xx + yy - zz + wx_2 + yz_2);
-//    float imu_z = accel_imu.z()*(wy_2 + xz_2 - wx_2 + yz_2 + ww - xx - yy + zz);
-
-//    accel_imu.x() = accel_imu.x()*(ww + xx + yy + zz + xy_2 + wz_2 - wy_2 + xz_2);
-//    accel_imu.y() = accel_imu.y()*(xy_2 - wz_2 + ww - xx + yy - zz + wx_2 + yz_2);
-//    accel_imu.z() = accel_imu.z()*(wy_2 + xz_2 - wx_2 + yz_2 + ww - xx - yy + zz);
     
     // Populate forearm IMU position and acceleration data
     if (!populateDataIMU(&accel_imu, &pos, &accel)) {
       Serial.println("Function populateDataIMU failed for forearm_imu");
       return;
     }
-
-//    Serial.print(accel.x);
-//    Serial.print(",");
-//    Serial.println(imu_x);
 
     // Store IMU position and acceleration into forearm data array
     forearm_pos_vals[sample_num] = pos;
@@ -472,29 +447,22 @@ void loop()
     // Read shoulder IMU acceleration data
     accel_imu = shoulder_imu.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
 
-    // Read forearm IMU absolute orientation data (quaternion output)
-//    quat = shoulder_imu.getQuat();
-
-//    ww = quat.w()*quat.w();
-//    Serial.println(ww);
-//    xx = quat.x()*quat.x();
-//    Serial.println(xx);
-//    yy = quat.y()*quat.y();
-//    Serial.println(yy);
-//    zz = quat.z()*quat.z();
-//    Serial.println(zz);
-
-//    wx_2 = 2*quat.w()*quat.x();
-//    wy_2 = 2*quat.w()*quat.y();
-//    wz_2 = 2*quat.w()*quat.z();
-//    
-//    xy_2 = 2*quat.x()*quat.y();
-//    xz_2 = 2*quat.x()*quat.z();
-//    yz_2 = 2*quat.y()*quat.z();
+//    // Read shoulder IMU absolute orientation data (quaternion output)
+//    quat_shoulder = shoulder_imu.getQuat();
 //
-//    accel_imu.x() = accel_imu.x()*(ww + xx + yy + zz + xy_2 + wz_2 - wy_2 + xz_2);
-//    accel_imu.y() = accel_imu.y()*(xy_2 - wz_2 + ww - xx + yy - zz + wx_2 + yz_2);
-//    accel_imu.z() = accel_imu.z()*(wy_2 + xz_2 - wx_2 + yz_2 + ww - xx - yy + zz);
+//
+//    // Get relative quaternion between shoulder IMU to forearm IMU
+//    imu::Quaternion quat_shoulder_to_forearm = multiplyQuat(conjugateQuat(quat_shoulder), quat_forearm);
+//
+//    // Get relative acceleration vector
+//    imu::Quaternion q_tmp2 = multiplyQuat(quat_shoulder_to_forearm, pure_quat);
+//
+//    imu::Quaternion rel_accel = multiplyQuat(q_tmp2, conjugateQuat(quat_shoulder_to_forearm));
+//
+//    float rel_w = rel_accel.w();
+//    float rel_x = rel_accel.x();
+//    float rel_y = rel_accel.y();
+//    float rel_z = rel_accel.z();
     
     // Populate shoulder IMU position and acceleration data
     if (!populateDataIMU(&accel_imu, &pos, &accel)) {
