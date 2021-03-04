@@ -59,41 +59,80 @@ typedef struct {
 
 imu::Vector<3> accel_imu;
 
-imu::Quaternion quat;
+imu::Quaternion quat_forearm;
+imu::Quaternion quat_shoulder;
+
+imu::Quaternion pure_quat;
 
 vector3D pos;
 vector3D accel;
 
+float global_x_vel = 0.0;
+float rel_x_vel = 0.0;
+// Forearm IMU Calibration Data
 /*
-16
--3
--21
--89
-168
--207
-0
+FOREARM FULLY CALIBRATED
+-53
+3
+-44
+-11
+165
+-186
+-1
+-1
 -2
-1
 1000
-950
+1925
 
  */
 
-adafruit_bno055_offsets_t sensor_offsets = {
-  .accel_offset_x = 16,
-  .accel_offset_y = -3,
-  .accel_offset_z = -21,
-  
-  .mag_offset_x = -89,
-  .mag_offset_y = 168,
-  .mag_offset_z = -207,
+/*
+SHOULDER FULLY CALIBRATED
+-13
+-35
+-22
+-402
+-206
+-414
+-1
+-1
+-2
+1000
+896
+*/
 
-  .gyro_offset_x = 0,
-  .gyro_offset_y = -2,
-  .gyro_offset_z = 1,
+adafruit_bno055_offsets_t forearm_sensor_offsets = {
+  .accel_offset_x = -53,
+  .accel_offset_y = 3,
+  .accel_offset_z = -44,
+  
+  .mag_offset_x = -11,
+  .mag_offset_y = 165,
+  .mag_offset_z = -186,
+
+  .gyro_offset_x = -1,
+  .gyro_offset_y = -1,
+  .gyro_offset_z = -2,
 
   .accel_radius = 1000,
-  .mag_radius = 950,
+  .mag_radius = 1925,
+};
+
+adafruit_bno055_offsets_t shoulder_sensor_offsets = {
+  .accel_offset_x = -13,
+  .accel_offset_y = -35,
+  .accel_offset_z = -22,
+  
+  .mag_offset_x = -402,
+  .mag_offset_y = -206,
+  .mag_offset_z = -414,
+
+  .gyro_offset_x = -1,
+  .gyro_offset_y = -1,
+  .gyro_offset_z = -2,
+
+  .accel_radius = 1000,
+  .mag_radius = 896,
 };
 
 /*
@@ -154,30 +193,21 @@ bool populateDataIMU(const imu::Vector<3> * accel_data, vector3D * pos, vector3D
         return false;
     }
 
-    // Calculate displacement (del_x = 0.5*acceleration*dt*dt)
-//    pos->x = 0.5*accel_data->x()*delta_time*delta_time;
-//    pos->y = 0.5*accel_data->y()*delta_time*delta_time;
-//    pos->z = 0.5*accel_data->z()*delta_time*delta_time;
-//
-//    accel->x = accel_data->x();
-//    accel->y = accel_data->y();
-//    accel->z = accel_data->z();
+    // Calculate displacement (del_x = 0.5*acceleration*dt*dt) (m)
+    pos->x = 0.5*accel_data->x()*delta_time*delta_time;
+    pos->y = 0.5*accel_data->y()*delta_time*delta_time;
+    pos->z = 0.5*accel_data->z()*delta_time*delta_time;
 
-    // Calculate displacement (del_x = 0.5*acceleration*dt*dt) (cm)
-    pos->x = 0.5*accel_data->x()*1.0*delta_time*delta_time;
-    pos->y = 0.5*accel_data->y()*1.0*delta_time*delta_time;
-    pos->z = 0.5*accel_data->z()*1.0*delta_time*delta_time;
-
-    // Store acceleration data (cm/s^2)
-    accel->x = accel_data->x()*1.0;
-    accel->y = accel_data->y()*1.0;
-    accel->z = accel_data->z()*1.0;
+    // Store acceleration data (m/s^2)
+    accel->x = accel_data->x();
+    accel->y = accel_data->y();
+    accel->z = accel_data->z();
 
     return true;
 }
 
 /*
- * bool conjugate(const imu::Quaternion * quat, imu::Quaternion * quat_conj)
+ * imu::Quaternion conjugateQuat(const imu::Quaternion &q)
  * 
  * Description: Transforms a quaternion q into its conjugate q*.
  * 
@@ -186,58 +216,53 @@ bool populateDataIMU(const imu::Vector<3> * accel_data, vector3D * pos, vector3D
  * 
  * Return:
  * 
- * False: Input pointer(s) is NULL
- * True: Conjuagate quaternion q* of input quaternion q
+ * Conjuagate quaternion q* of input quaternion q
  * 
  */
-bool conjugate(const imu::Quaternion * quat, imu::Quaternion * quat_conj) {
-  if (!quat || !quat_conj) {
-    return false;
-  }
+imu::Quaternion conjugateQuat(const imu::Quaternion &q) {
+  imu::Quaternion q_conj;
 
-  quat_conj->w() = quat->w();
-  quat_conj->x() = -quat->x();
-  quat_conj->y() = -quat->y();
-  quat_conj->z() = -quat->z();
+  q_conj.w() = q.w();
+  q_conj.x() = -q.x();
+  q_conj.y() = -q.y();
+  q_conj.z() = -q.z();
 
-  return true;
+  return q_conj;
 }
 
-void displayCalStatus(void)
+/*
+ * imu::Quaternion multiplyQuat(const imu::Quaternion &q1, const imu::Quaternion &q2)
+ * 
+ * Description: Multiplies two quaternions .
+ * 
+ * For quaternion q1 = (w, xi + yj + zk) and q2 = (a, bi + cj + dk), its product
+ * q_p = ((w*a - x*b - y*c - z*d), (x*a + w*b + y*d - z*c)i, (y*a + w*c + z*b - x*d)j, (z*a + w*d + x*c - y*b)k)
+ * 
+ * Return:
+ * 
+ * Product quaternion q_p = q1*q2
+ * 
+ */
+imu::Quaternion multiplyQuat(const imu::Quaternion &q1, const imu::Quaternion &q2) {
+  imu::Quaternion q_p;
+
+  q_p.w() = q1.w()*q2.w() - q1.x()*q2.x() - q1.y()*q2.y() - q1.z()*q2.z();
+  q_p.x() = q1.x()*q2.w() + q1.w()*q2.x() + q1.y()*q2.z() - q1.z()*q2.y();
+  q_p.y() = q1.y()*q2.w() + q1.w()*q2.y() + q1.z()*q2.x() - q1.x()*q2.z();
+  q_p.z() = q1.z()*q2.w() + q1.w()*q2.z() + q1.x()*q2.y() - q1.y()*q2.x();
+
+  return q_p;
+}
+
+
+void displayCalStatus(Adafruit_BNO055 &imu)
 {
   /* Get the four calibration values (0..3) */
   /* Any sensor data reporting 0 should be ignored, */
   /* 3 means 'fully calibrated" */
   uint8_t system, gyro, accel, mag;
   system = gyro = accel = mag = 0;
-  forearm_imu.getCalibration(&system, &gyro, &accel, &mag);
- 
-  /* The data should be ignored until the system calibration is > 0 */
-  Serial.print("\t");
-  if (!system)
-  {
-    Serial.print("! ");
-  }
- 
-  /* Display the individual values */
-  Serial.print("Sys:");
-  Serial.print(system, DEC);
-  Serial.print(" G:");
-  Serial.print(gyro, DEC);
-  Serial.print(" A:");
-  Serial.print(accel, DEC);
-  Serial.print(" M:");
-  Serial.println(mag, DEC);
-}
-
-void displayCalStatusShoulder(void)
-{
-  /* Get the four calibration values (0..3) */
-  /* Any sensor data reporting 0 should be ignored, */
-  /* 3 means 'fully calibrated" */
-  uint8_t system, gyro, accel, mag;
-  system = gyro = accel = mag = 0;
-  shoulder_imu.getCalibration(&system, &gyro, &accel, &mag);
+  imu.getCalibration(&system, &gyro, &accel, &mag);
  
   /* The data should be ignored until the system calibration is > 0 */
   Serial.print("\t");
@@ -269,33 +294,41 @@ void setup()
         while(1);
     }
 
-    forearm_imu.setSensorOffsets(sensor_offsets);
-    delay(1000);
-    for (int i = 0; i < 20; i++) {
-      displayCalStatus();
+    // Calibrate forearm IMU with preset data
+    forearm_imu.setSensorOffsets(forearm_sensor_offsets);
+
+    while(!forearm_imu.isFullyCalibrated()) {
+      Serial.println("Waiting for forearm IMU to fully calibrate");
+      displayCalStatus(forearm_imu);
     }
-//    while (!forearm_imu.isFullyCalibrated()) {
-//      displayCalStatus();
+    
+//    for (int i = 0; i < 20; i++) {
+//      displayCalStatus(forearm_imu);
 //    }
-//    
+    
+//    while (!forearm_imu.isFullyCalibrated()) {
+//      displayCalStatus(forearm_imu);
+//    }
+//
+//    if (forearm_imu.isFullyCalibrated()) {
 //    Serial.println("FOREARM FULLY CALIBRATED");
-//    forearm_imu.getSensorOffsets(sensor_offsets);
+//    forearm_imu.getSensorOffsets(forearm_sensor_offsets);
 //    
-//    Serial.println(sensor_offsets.accel_offset_x);
-//    Serial.println(sensor_offsets.accel_offset_y);
-//    Serial.println(sensor_offsets.accel_offset_z);
+//    Serial.println(forearm_sensor_offsets.accel_offset_x);
+//    Serial.println(forearm_sensor_offsets.accel_offset_y);
+//    Serial.println(forearm_sensor_offsets.accel_offset_z);
 //    
-//    Serial.println(sensor_offsets.mag_offset_x);
-//    Serial.println(sensor_offsets.mag_offset_y);
-//    Serial.println(sensor_offsets.mag_offset_z);
+//    Serial.println(forearm_sensor_offsets.mag_offset_x);
+//    Serial.println(forearm_sensor_offsets.mag_offset_y);
+//    Serial.println(forearm_sensor_offsets.mag_offset_z);
 //
-//    Serial.println(sensor_offsets.gyro_offset_x);
-//    Serial.println(sensor_offsets.gyro_offset_y);
-//    Serial.println(sensor_offsets.gyro_offset_z);
+//    Serial.println(forearm_sensor_offsets.gyro_offset_x);
+//    Serial.println(forearm_sensor_offsets.gyro_offset_y);
+//    Serial.println(forearm_sensor_offsets.gyro_offset_z);
 //
-//    Serial.println(sensor_offsets.accel_radius);
-//    Serial.println(sensor_offsets.mag_radius);
-//    
+//    Serial.println(forearm_sensor_offsets.accel_radius);
+//    Serial.println(forearm_sensor_offsets.mag_radius);
+//    }
     // Delay by 1s to allow sensors to calibrate (idk I'm speculating here)
     delay(1000);
     forearm_imu.setExtCrystalUse(true);
@@ -307,12 +340,44 @@ void setup()
         while(1);
     }
 
-    shoulder_imu.setSensorOffsets(sensor_offsets);
-    delay(1000);
-    Serial.println("SHOULDER IMU");
-    for (int i = 0; i < 20; i++) {
-      displayCalStatusShoulder();  
+    // Calibrate shoulder IMU with preset data
+    shoulder_imu.setSensorOffsets(shoulder_sensor_offsets);
+
+    while(!shoulder_imu.isFullyCalibrated()) {
+      Serial.println("Waiting for shoulder IMU to fully calibrate");
+      displayCalStatus(forearm_imu);
     }
+    
+//    Serial.println("SHOULDER IMU");
+//    for (int i = 0; i < 20; i++) {
+//      displayCalStatus(shoulder_imu);  
+//    }
+
+//    while (!shoulder_imu.isFullyCalibrated()) {
+//      displayCalStatus(shoulder_imu);
+//    }
+//
+//    if (shoulder_imu.isFullyCalibrated()) {
+//      Serial.println("SHOULDER FULLY CALIBRATED");
+//    shoulder_imu.getSensorOffsets(shoulder_sensor_offsets);
+//    
+//    Serial.println(shoulder_sensor_offsets.accel_offset_x);
+//    Serial.println(shoulder_sensor_offsets.accel_offset_y);
+//    Serial.println(shoulder_sensor_offsets.accel_offset_z);
+//    
+//    Serial.println(shoulder_sensor_offsets.mag_offset_x);
+//    Serial.println(shoulder_sensor_offsets.mag_offset_y);
+//    Serial.println(shoulder_sensor_offsets.mag_offset_z);
+//
+//    Serial.println(shoulder_sensor_offsets.gyro_offset_x);
+//    Serial.println(shoulder_sensor_offsets.gyro_offset_y);
+//    Serial.println(shoulder_sensor_offsets.gyro_offset_z);
+//
+//    Serial.println(shoulder_sensor_offsets.accel_radius);
+//    Serial.println(shoulder_sensor_offsets.mag_radius);
+//    }
+//    
+
      
     // Delay by 1s to allow sensors to calibrate (idk I'm speculating here)
     delay(1000);
@@ -382,54 +447,49 @@ void loop()
     accel_imu = forearm_imu.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
 
     // Read forearm IMU absolute orientation data (quaternion output)
-    quat = forearm_imu.getQuat();
+    quat_forearm = forearm_imu.getQuat();
+
+    // Get conjugate of forearm quaternion
+    imu::Quaternion quat_forearm_conj = conjugateQuat(quat_forearm);
+
+    // Transform acceleration vector into pure quaternion p = (0, xi, yj, zk)
+    pure_quat.w() = 0;
+    pure_quat.x() = accel_imu.x();
+    pure_quat.y() = accel_imu.y();
+    pure_quat.z() = accel_imu.z();
+
+    // Transform acceleration vector into global coordinate frame
+    imu::Quaternion q_tmp = multiplyQuat(quat_forearm, pure_quat);
+    
+    imu::Quaternion pure_quat_transformed = multiplyQuat(q_tmp, quat_forearm_conj);
+
+    float w = pure_quat_transformed.w();
+    float x = pure_quat_transformed.x();
+    float y = pure_quat_transformed.y();
+    float z = pure_quat_transformed.z();
+
+    float delta_vel_x = x*100*delta_time;
+    global_x_vel += delta_vel_x; 
+//
+//    Serial.print(accel_imu.x());
+//    Serial.print(",");
+//    Serial.println(x);
 
 //    Serial.print("qW: ");
-//    Serial.println(quat.w(), 4);
+//    Serial.println(quat_forearm.w(), 4);
 //    Serial.print("qX: ");
-//    Serial.println(quat.x(), 4);
+//    Serial.println(quat_forearm.x(), 4);
 //    Serial.print("qY: ");
-//    Serial.println(quat.y(), 4);
+//    Serial.println(quat_forearm.y(), 4);
 //    Serial.print("qZ: ");
-//    Serial.println(quat.z(), 4);
+//    Serial.println(quat_forearm.z(), 4);
 //    
-
-    float ww = quat.w()*quat.w();
-//    Serial.println(ww, 4);
-    float xx = quat.x()*quat.x();
-//    Serial.println(xx, 4);
-    float yy = quat.y()*quat.y();
-//    Serial.println(yy, 4);
-    float zz = quat.z()*quat.z();
-//    Serial.println(zz, 4);
-
-//    Serial.println(accel_imu.x(), 4);
-//    Serial.println("END");
-    float wx_2 = 2*quat.w()*quat.x();
-    float wy_2 = 2*quat.w()*quat.y();
-    float wz_2 = 2*quat.w()*quat.z();
-    
-    float xy_2 = 2*quat.x()*quat.y();
-    float xz_2 = 2*quat.x()*quat.z();
-    float yz_2 = 2*quat.y()*quat.z();
-
-    float imu_x = accel_imu.x()*(ww + xx + yy + zz + xy_2 + wz_2 - wy_2 + xz_2);
-    float imu_y = accel_imu.y()*(xy_2 - wz_2 + ww - xx + yy - zz + wx_2 + yz_2);
-    float imu_z = accel_imu.z()*(wy_2 + xz_2 - wx_2 + yz_2 + ww - xx - yy + zz);
-
-//    accel_imu.x() = accel_imu.x()*(ww + xx + yy + zz + xy_2 + wz_2 - wy_2 + xz_2);
-//    accel_imu.y() = accel_imu.y()*(xy_2 - wz_2 + ww - xx + yy - zz + wx_2 + yz_2);
-//    accel_imu.z() = accel_imu.z()*(wy_2 + xz_2 - wx_2 + yz_2 + ww - xx - yy + zz);
     
     // Populate forearm IMU position and acceleration data
     if (!populateDataIMU(&accel_imu, &pos, &accel)) {
       Serial.println("Function populateDataIMU failed for forearm_imu");
       return;
     }
-
-//    Serial.print(accel.x);
-//    Serial.print(",");
-//    Serial.println(imu_x);
 
     // Store IMU position and acceleration into forearm data array
     forearm_pos_vals[sample_num] = pos;
@@ -438,32 +498,43 @@ void loop()
     // Read shoulder IMU acceleration data
     accel_imu = shoulder_imu.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
 
-        // Read forearm IMU absolute orientation data (quaternion output)
-    quat = shoulder_imu.getQuat();
+    // Read shoulder IMU absolute orientation data (quaternion output)
+    quat_shoulder = shoulder_imu.getQuat();
 
-//    Serial.print("qW: ");
-//    Serial.println(quat.w(), 4);
 
-    ww = quat.w()*quat.w();
-//    Serial.println(ww);
-    xx = quat.x()*quat.x();
-//    Serial.println(xx);
-    yy = quat.y()*quat.y();
-//    Serial.println(yy);
-    zz = quat.z()*quat.z();
-//    Serial.println(zz);
+    // Get relative quaternion between shoulder IMU to forearm IMU
+    imu::Quaternion quat_shoulder_to_forearm = multiplyQuat(conjugateQuat(quat_shoulder), quat_forearm);
 
-    wx_2 = 2*quat.w()*quat.x();
-    wy_2 = 2*quat.w()*quat.y();
-    wz_2 = 2*quat.w()*quat.z();
-    
-    xy_2 = 2*quat.x()*quat.y();
-    xz_2 = 2*quat.x()*quat.z();
-    yz_2 = 2*quat.y()*quat.z();
+    // Get relative acceleration vector
+    imu::Quaternion q_tmp2 = multiplyQuat(quat_shoulder_to_forearm, pure_quat);
 
-    accel_imu.x() = accel_imu.x()*(ww + xx + yy + zz + xy_2 + wz_2 - wy_2 + xz_2);
-    accel_imu.y() = accel_imu.y()*(xy_2 - wz_2 + ww - xx + yy - zz + wx_2 + yz_2);
-    accel_imu.z() = accel_imu.z()*(wy_2 + xz_2 - wx_2 + yz_2 + ww - xx - yy + zz);
+    imu::Quaternion rel_accel = multiplyQuat(q_tmp2, conjugateQuat(quat_shoulder_to_forearm));
+
+    float rel_w = rel_accel.w();
+    float rel_x = rel_accel.x();
+    float rel_y = rel_accel.y();
+    float rel_z = rel_accel.z();
+
+//    float delta_vel_x = rel_x*100*delta_time;
+//    rel_x_vel += delta_vel_x;
+
+//    Serial.print("Local Accel X: ");
+//    Serial.print(accel_imu.x());
+//    Serial.print(", ");
+//    Serial.print("Global Accel X: ");
+//    Serial.print(x);
+//    Serial.print(", ");
+    Serial.print("Shoulder Local Accel X: ");
+    Serial.print(accel_imu.x());
+    Serial.print(", ");
+    Serial.print("Relative Accel X: ");
+    Serial.println(rel_x);
+//    Serial.print("Relative Accel Y: ");
+//    Serial.print(rel_y);
+//    Serial.print("Relative Accel Z: ");
+//    Serial.println(rel_z);
+//    Serial.print("Relative Pos X: ");
+//    Serial.println(rel_x_pos);
     
     // Populate shoulder IMU position and acceleration data
     if (!populateDataIMU(&accel_imu, &pos, &accel)) {
