@@ -36,7 +36,7 @@ const uint8_t num_readings = segment_size/bno055_samplerate_delay_ms;
 const float offset_voltage = 3.3/2.0;
 
 // ADC offset (Arduino 10bit ADC = (2^10 - 1) = 1023 data points)
-const uint16_t adc_offset = (offset_voltage/5.0)*1023;
+const uint16_t adc_offset = (offset_voltage/3.3)*1023;
 
 // Differential time used for displacement calculation
 const float delta_time = (float)(bno055_samplerate_delay_ms)/1000.0;
@@ -145,17 +145,20 @@ unsigned int * emg1_analog_vals;
 // Raw analog values for tricep EMG (EMG_PIN2)
 unsigned int * emg2_analog_vals;
 
-// Calculated displacement values for forearm IMU
-vector3D * forearm_pos_vals;
+// Relative acceleration data from shoulder to forearm IMU
+vector3D * relative_accel_vals;
 
-// Raw acceleration data for forearm IMU
-vector3D * forearm_accel_vals;
-
-// Calculated displacement values for shoulder IMU
-vector3D * shoulder_pos_vals;
-
-// Raw acceleration data for shoulder IMU
-vector3D * shoulder_accel_vals;
+//// Calculated displacement values for forearm IMU
+//vector3D * forearm_pos_vals;
+//
+//// Raw acceleration data for forearm IMU
+//vector3D * forearm_accel_vals;
+//
+//// Calculated displacement values for shoulder IMU
+//vector3D * shoulder_pos_vals;
+//
+//// Raw acceleration data for shoulder IMU
+//vector3D * shoulder_accel_vals;
 
 /*
  * IMU Sensor Object Declaration
@@ -177,26 +180,22 @@ Adafruit_BNO055 shoulder_imu = Adafruit_BNO055(2, BNO055_ADDRESS_B);
 void ** to_data[6] = {
     &emg1_analog_vals,                               // Index 0: EMG1 raw rectified data
     &emg2_analog_vals,                               // Index 1: EMG2 raw rectified data
-    &forearm_pos_vals,                               // Index 2: Forearm IMU vector3D position data
-    &shoulder_pos_vals,                              // Index 3: Shoulder IMU vector3D position data
-    &forearm_accel_vals,                             // Index 4: Forearm IMU vector3D acceleration data
-    &shoulder_accel_vals                             // Index 5: Shoulder IMU vector3D acceleration data
+    &relative_accel_vals                             // Index 2: IMU vector3D relative acceleration data
+//    &forearm_pos_vals,                               // Index 2: Forearm IMU vector3D position data
+//    &shoulder_pos_vals,                              // Index 3: Shoulder IMU vector3D position data
+//    &forearm_accel_vals,                             // Index 4: Forearm IMU vector3D acceleration data
+//    &shoulder_accel_vals                             // Index 5: Shoulder IMU vector3D acceleration data
 };
 
 /*
  * Data Preprocessing Functions
  */
 
-bool populateDataIMU(const imu::Vector<3> * accel_data, vector3D * pos, vector3D * accel) {
+bool populateDataIMU(const imu::Vector<3> * accel_data, vector3D * accel) {
     // Check if any of the pointers are NULL
-    if (!accel_data || !pos || !accel) {
+    if (!accel_data || !accel) {
         return false;
     }
-
-    // Calculate displacement (del_x = 0.5*acceleration*dt*dt) (m)
-    pos->x = 0.5*accel_data->x()*delta_time*delta_time;
-    pos->y = 0.5*accel_data->y()*delta_time*delta_time;
-    pos->z = 0.5*accel_data->z()*delta_time*delta_time;
 
     // Store acceleration data (m/s^2)
     accel->x = accel_data->x();
@@ -297,10 +296,10 @@ void setup()
     // Calibrate forearm IMU with preset data
     forearm_imu.setSensorOffsets(forearm_sensor_offsets);
 
-    while(!forearm_imu.isFullyCalibrated()) {
-      Serial.println("Waiting for forearm IMU to fully calibrate");
-      displayCalStatus(forearm_imu);
-    }
+//    while(!forearm_imu.isFullyCalibrated()) {
+//      Serial.println("Waiting for forearm IMU to fully calibrate");
+//      displayCalStatus(forearm_imu);
+//    }
     
 //    for (int i = 0; i < 20; i++) {
 //      displayCalStatus(forearm_imu);
@@ -343,10 +342,10 @@ void setup()
     // Calibrate shoulder IMU with preset data
     shoulder_imu.setSensorOffsets(shoulder_sensor_offsets);
 
-    while(!shoulder_imu.isFullyCalibrated()) {
-      Serial.println("Waiting for shoulder IMU to fully calibrate");
-      displayCalStatus(forearm_imu);
-    }
+//    while(!shoulder_imu.isFullyCalibrated()) {
+//      Serial.println("Waiting for shoulder IMU to fully calibrate");
+//      displayCalStatus(forearm_imu);
+//    }
     
 //    Serial.println("SHOULDER IMU");
 //    for (int i = 0; i < 20; i++) {
@@ -395,47 +394,44 @@ void setup()
         Serial.println("Failed to malloc emg2_analog_vals");
         while(1);
     }
-    
-    forearm_pos_vals = (vector3D *)malloc(sizeof(vector3D) * num_readings);
-    if (!forearm_pos_vals) {
-        Serial.println("Failed to malloc forearm_pos_vals");
-        while(1);
-    }
-    
-    forearm_accel_vals = (vector3D *)malloc(sizeof(vector3D) * num_readings);
-    if (!forearm_accel_vals) {
-        Serial.println("Failed to malloc forearm_accel_vals");
-        while(1);
-    }
-    
-    shoulder_pos_vals = (vector3D *)malloc(sizeof(vector3D) * num_readings);
-    if (!shoulder_pos_vals) {
-        Serial.println("Failed to malloc shoulder_pos_vals");
-        while(1);
-    }
-    
-    shoulder_accel_vals = (vector3D *)malloc(sizeof(vector3D) * num_readings);
-    if (!shoulder_accel_vals) {
-        Serial.println("Failed to malloc shoulder_accel_vals");
-        while(1);
-    }
 
-    Serial.print("Segment,");
-    Serial.print("BicepEMG,");
-    Serial.print("TricepEMG,");
-    Serial.print("ForearmPosX,");
-    Serial.print("ForearmPosY,");
-    Serial.print("ForearmPosZ,");
-    Serial.print("ShoulderPosX,");
-    Serial.print("ShoulderPosY,");
-    Serial.print("ShoulderPosZ,");
-    Serial.print("ForearmAccelX,");
-    Serial.print("ForearmAccelY,");
-    Serial.print("ForearmAccelZ,");
-    Serial.print("ShoulderAccelX,");
-    Serial.print("ShoulderAccelY,");
-    Serial.print("ShoulderAccelZ,");
-    Serial.print("TicMotion");
+    relative_accel_vals = (vector3D *)malloc(sizeof(vector3D) * num_readings);
+    if (!relative_accel_vals) {
+        Serial.println("Failed to malloc relative_accel_vals");
+        while(1);
+    }
+    
+//    forearm_pos_vals = (vector3D *)malloc(sizeof(vector3D) * num_readings);
+//    if (!forearm_pos_vals) {
+//        Serial.println("Failed to malloc forearm_pos_vals");
+//        while(1);
+//    }
+//    
+//    forearm_accel_vals = (vector3D *)malloc(sizeof(vector3D) * num_readings);
+//    if (!forearm_accel_vals) {
+//        Serial.println("Failed to malloc forearm_accel_vals");
+//        while(1);
+//    }
+//    
+//    shoulder_pos_vals = (vector3D *)malloc(sizeof(vector3D) * num_readings);
+//    if (!shoulder_pos_vals) {
+//        Serial.println("Failed to malloc shoulder_pos_vals");
+//        while(1);
+//    }
+//    
+//    shoulder_accel_vals = (vector3D *)malloc(sizeof(vector3D) * num_readings);
+//    if (!shoulder_accel_vals) {
+//        Serial.println("Failed to malloc shoulder_accel_vals");
+//        while(1);
+//    }
+
+//    Serial.print("Segment,");
+//    Serial.print("BicepEMG,");
+//    Serial.print("TricepEMG,");
+//    Serial.print("RelativeAccelX,");
+//    Serial.print("RelativeAccelY,");
+//    Serial.print("RelativeAccelZ,");
+//    Serial.print("TicMotion");
 }
 
 void loop()
@@ -449,58 +445,23 @@ void loop()
     // Read forearm IMU absolute orientation data (quaternion output)
     quat_forearm = forearm_imu.getQuat();
 
-    // Get conjugate of forearm quaternion
-    imu::Quaternion quat_forearm_conj = conjugateQuat(quat_forearm);
-
     // Transform acceleration vector into pure quaternion p = (0, xi, yj, zk)
     pure_quat.w() = 0;
     pure_quat.x() = accel_imu.x();
     pure_quat.y() = accel_imu.y();
     pure_quat.z() = accel_imu.z();
 
-    // Transform acceleration vector into global coordinate frame
-    imu::Quaternion q_tmp = multiplyQuat(quat_forearm, pure_quat);
-    
-    imu::Quaternion pure_quat_transformed = multiplyQuat(q_tmp, quat_forearm_conj);
-
-    float w = pure_quat_transformed.w();
-    float x = pure_quat_transformed.x();
-    float y = pure_quat_transformed.y();
-    float z = pure_quat_transformed.z();
-
-    float delta_vel_x = x*100*delta_time;
-    global_x_vel += delta_vel_x; 
-//
-//    Serial.print(accel_imu.x());
-//    Serial.print(",");
-//    Serial.println(x);
-
-//    Serial.print("qW: ");
-//    Serial.println(quat_forearm.w(), 4);
-//    Serial.print("qX: ");
-//    Serial.println(quat_forearm.x(), 4);
-//    Serial.print("qY: ");
-//    Serial.println(quat_forearm.y(), 4);
-//    Serial.print("qZ: ");
-//    Serial.println(quat_forearm.z(), 4);
-//    
-    
     // Populate forearm IMU position and acceleration data
-    if (!populateDataIMU(&accel_imu, &pos, &accel)) {
+    if (!populateDataIMU(&accel_imu, &accel)) {
       Serial.println("Function populateDataIMU failed for forearm_imu");
       return;
     }
 
-    // Store IMU position and acceleration into forearm data array
-    forearm_pos_vals[sample_num] = pos;
-    forearm_accel_vals[sample_num] = accel;
-
-    // Read shoulder IMU acceleration data
-    accel_imu = shoulder_imu.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
+//    // Read shoulder IMU acceleration data
+//    accel_imu = shoulder_imu.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
 
     // Read shoulder IMU absolute orientation data (quaternion output)
     quat_shoulder = shoulder_imu.getQuat();
-
 
     // Get relative quaternion between shoulder IMU to forearm IMU
     imu::Quaternion quat_shoulder_to_forearm = multiplyQuat(conjugateQuat(quat_shoulder), quat_forearm);
@@ -515,40 +476,47 @@ void loop()
     float rel_y = rel_accel.y();
     float rel_z = rel_accel.z();
 
-//    float delta_vel_x = rel_x*100*delta_time;
-//    rel_x_vel += delta_vel_x;
-
 //    Serial.print("Local Accel X: ");
 //    Serial.print(accel_imu.x());
 //    Serial.print(", ");
 //    Serial.print("Global Accel X: ");
 //    Serial.print(x);
 //    Serial.print(", ");
-    Serial.print("Shoulder Local Accel X: ");
-    Serial.print(accel_imu.x());
-    Serial.print(", ");
-    Serial.print("Relative Accel X: ");
-    Serial.println(rel_x);
+//    Serial.print("Shoulder Local Accel X: ");
+//    Serial.print(accel_imu.x());
+//    Serial.print(", ");
+//    Serial.print("Relative Accel X: ");
+//    Serial.println(rel_x);
+
+    accel.x = rel_x;
+    accel.y = rel_y;
+    accel.z = rel_z;
 //    Serial.print("Relative Accel Y: ");
 //    Serial.print(rel_y);
 //    Serial.print("Relative Accel Z: ");
 //    Serial.println(rel_z);
 //    Serial.print("Relative Pos X: ");
 //    Serial.println(rel_x_pos);
-    
-    // Populate shoulder IMU position and acceleration data
-    if (!populateDataIMU(&accel_imu, &pos, &accel)) {
-      Serial.println("Function populateDataIMU failed for shoulder_imu");
-      return;
-    }
 
     // Store IMU position and acceleration into shoulder data array
-    shoulder_pos_vals[sample_num] = pos;
-    shoulder_accel_vals[sample_num] = accel;
+    relative_accel_vals[sample_num] = accel;
 
     // Read raw data from EMG sensors
     int emg1_no_offset = analogRead(EMG_PIN1) - adc_offset;
     int emg2_no_offset = analogRead(EMG_PIN2) - adc_offset;
+
+//    Serial.print("EMG1 Raw: ");
+    Serial.print("\t");
+    Serial.print(analogRead(EMG_PIN2));
+//    Serial.print("EMG2 Raw: ");
+//    Serial.print(analogRead(EMG_PIN2));
+    Serial.print(" ");
+//    Serial.print(", ");
+//    Serial.print("EMG1 No Offset: ");
+    Serial.println(emg2_no_offset);
+//    Serial.print(", ");
+//    Serial.print("EMG2 No Offset: ");
+//    Serial.println(emg2_no_offset);
 
     // Rectify raw EMG data (i.e. take absolute value)
     unsigned int emg1_rectified = abs(emg1_no_offset);
@@ -564,31 +532,28 @@ void loop()
     if (sample_num >= num_readings)
     {
         // Print all sample data collected in current segment
-        for (int sample = 0; sample < num_readings; sample++) {
-            // First element prints the current segment number
+//        for (int sample = 0; sample < num_readings; sample++) {
+//            // First element prints the current segment number
 //            Serial.print(segment_num);
 //            Serial.print(",");
             
             // Loop through all sensor data arrays (6 in total)
-            for (int data_idx = 0; data_idx < 6; data_idx++) {
-                switch(data_idx) {
-                    // 0, 1 indices contain pointers to EMG1 and EMG2 raw data
+//            for (int data_idx = 0; data_idx < 6; data_idx++) {
+//                switch(data_idx) {
+//                    // 0, 1 indices contain pointers to EMG1 and EMG2 raw data
 //                    case 0:
 //                    case 1: {
-//                        unsigned int ** emg2_ptr = (unsigned int **)to_data[data_idx];
-//                        if (!emg2_ptr) {
-//                            // Serial.println("NULL emg_ptr returned from to_data[data_idx], data_idx = %d", data_idx);
-//                            return;
+//                        unsigned int ** emg_ptr = (unsigned int **)to_data[data_idx];
+//                        if (!emg_ptr) {
+//                            Serial.println("emg_ptr is NULL");
+//                            while(1);
 //                        }
-//                        Serial.print((*emg2_ptr)[sample]);
+//                        Serial.print((*emg_ptr)[sample]);
 //                        Serial.print(",");
 //                        break;
 //                    }
-                    // 2, 3, 4, 5 indices contain pointers to IMU1 and IMU2 displacement and acceleration data
-//                    case 2:
-//                    case 3:
-//                    case 4: {
-//                    case 5: {
+                    // 2 index contains pointer to relative IMU acceleration data
+//                    case 2: {
 //                        vector3D ** vector_ptr = (vector3D **)to_data[data_idx];
 //                        if (!vector_ptr) {
 //                            Serial.println("NULL vector_ptr returned from index 2");
@@ -602,11 +567,11 @@ void loop()
 //                        Serial.print(",");
 //                        break;
 //                    }
-                }
-            }
+//                }
+//            }
             // Last element prints the tic detected value (prints all 0 for now, labelling will be done manually)
 //            Serial.println(0);
-        }
+//        }
         
         // Reset sample number to prepare for next data segment
         sample_num = 0;
